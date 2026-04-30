@@ -187,6 +187,104 @@ def _ridged_multifractal(rng: np.random.Generator, size: int, *,
     return h / total
 
 
+def _natural_mountain(
+    rng: np.random.Generator, size: int,
+    cx: float, cy: float, base_radius: float, height: float,
+    *, ridge_strength: float = 0.45, asymmetry: float = 0.35,
+) -> np.ndarray:
+    """Generate a naturalistic mountain — not a perfect cosine-bell.
+
+    Construction:
+      1. Asymmetric circular envelope (mountains aren't round)
+      2. FBM noise modulation (creates secondary peaks and shoulders)
+      3. Ridged multifractal (sharp jagged ridges along the upper slopes)
+      4. Light smoothing so spikes don't go pathological
+
+    The result has visible secondary peaks, ridge lines running down the
+    flanks, and an irregular silhouette — which is what real Mars
+    landmarks actually look like.
+    """
+    from scipy.ndimage import gaussian_filter
+    xs = np.arange(size)[None, :].astype(np.float32)
+    ys = np.arange(size)[:, None].astype(np.float32)
+    dx = xs - cx
+    dy = ys - cy
+    r = np.sqrt(dx * dx + dy * dy)
+    angle = np.arctan2(dy, dx)
+    # Asymmetric stretch — random orientation, ~35% elongation
+    rotation = rng.uniform(0, 2 * np.pi)
+    elongation = 1.0 + asymmetry * np.cos(angle - rotation)
+    eff_r = r / elongation
+    # Envelope: sharper than a cosine-bell — falls to zero at base_radius
+    env = np.clip(1.0 - (eff_r / base_radius) ** 1.3, 0.0, 1.0) ** 1.5
+
+    # FBM noise gives secondary peaks; concentrate it where envelope is high
+    noise = _fbm(rng, size, octaves=5, persistence=0.55, base_scale=max(8, int(base_radius // 4)))
+    noise = (noise - noise.mean()) / (noise.std() + 1e-8)
+
+    # Ridged multifractal for sharp side ridges
+    ridges = _ridged_multifractal(rng, size, octaves=5, persistence=0.6,
+                                  base_scale=max(6, int(base_radius // 3)))
+    ridges = (ridges - ridges.mean()) / (ridges.std() + 1e-8)
+
+    profile = env * (1.0 + 0.22 * noise + 0.65 * ridge_strength * np.maximum(0.0, ridges))
+    # Cap at 1.25× nominal height so a peak doesn't spike to 2× when
+    # noise + ridges both happen to align positively.
+    mountain = np.clip(profile, 0.0, 1.25) * height
+    # Mild blur preserves jaggedness but kills single-cell spikes
+    mountain = gaussian_filter(mountain, sigma=1.2)
+    return mountain.astype(np.float32)
+
+
+def _dune_field(rng: np.random.Generator, size: int, *,
+                wavelength_cells: float = 35.0,
+                amplitude_m: float = 1.5) -> np.ndarray:
+    """Wind-aligned dune ridges with asymmetric profiles + FBM modulation.
+
+    Real Mars dune fields show parallel ridges perpendicular to the
+    prevailing wind, with steep lee sides (downwind) and gentle windward
+    sides. Multi-wavelength so the field looks natural rather than a
+    perfect sine wave.
+    """
+    from scipy.ndimage import gaussian_filter
+    wind_dir = rng.uniform(0, np.pi)
+    cw, sw = np.cos(wind_dir), np.sin(wind_dir)
+    xs = np.arange(size)[None, :].astype(np.float32)
+    ys = np.arange(size)[:, None].astype(np.float32)
+    along = xs * cw + ys * sw
+    across = -xs * sw + ys * cw
+
+    # Primary dune wavelength + secondary ripples + tertiary detail
+    primary = np.sin(2 * np.pi * along / wavelength_cells)
+    secondary = np.sin(2 * np.pi * along / (wavelength_cells * 0.35)) * 0.30
+    tertiary = np.sin(2 * np.pi * along / (wavelength_cells * 0.12)) * 0.10
+    waves = primary + secondary + tertiary
+
+    # Asymmetric profile: steep crest (positive), gentle trough (negative).
+    # Real dunes have ~30° lee slope, ~15° windward slope. Use np.abs to
+    # avoid invalid-value warnings from fractional powers of negatives.
+    abs_w = np.abs(waves)
+    asym = np.where(
+        waves > 0,
+        abs_w ** 1.6,                 # sharper crests
+        -(abs_w ** 1.2) * 0.55        # gentler troughs
+    )
+
+    # Cross-wind modulation: dunes meander, not parallel-perfect
+    cross_mod = np.sin(2 * np.pi * across / (wavelength_cells * 4.0))
+    asym = asym * (1.0 + 0.15 * cross_mod)
+
+    # Amplitude modulation: some areas have big dunes, some have none
+    mod = _fbm(rng, size, octaves=3, persistence=0.55, base_scale=size // 8)
+    mod = (mod - mod.min()) / (mod.max() - mod.min() + 1e-8)
+    mod = np.clip(mod * 1.3 - 0.15, 0.0, 1.0)
+
+    field = asym * mod * amplitude_m
+    # Slight blur to soften the sine-wave look
+    field = gaussian_filter(field, sigma=1.0)
+    return field.astype(np.float32)
+
+
 def _domain_warp(field: np.ndarray, rng: np.random.Generator,
                  strength_cells: float = 12.0) -> np.ndarray:
     """Warp a 2D field by displacing sample positions with low-freq noise.
@@ -282,44 +380,53 @@ def synthetic_mars_terrain(
         xs = np.arange(size)[None, :]
         cx0, cy0 = size // 2, size // 2
 
-        # ── HERO MESAS / DISTANT PEAKS ────────────────────────────────
-        # 2–4 prominent landmarks placed in a ring at 250–450 m from
-        # origin so the player at center sees them on the horizon.
-        n_mesas = int(rng.integers(2, 5))
-        for _ in range(n_mesas):
-            angle = rng.uniform(0, 2 * np.pi)
-            dist  = size * rng.uniform(0.28, 0.45)
-            cx = int(cx0 + np.cos(angle) * dist)
-            cy = int(cy0 + np.sin(angle) * dist)
-            radius = size * rng.uniform(0.06, 0.11)
-            height = rng.uniform(60.0, 160.0)        # taller for visual scale
-            r = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2)
-            mesa = height * np.clip(np.cos(np.pi / 2 * r / radius), 0, 1) ** 1.6
-            mesa = np.where(r < radius * 1.4, mesa, 0.0)
-            mesa = gaussian_filter(mesa, sigma=5.0)
-            h = h + mesa.astype(np.float32)
-
-        # ── MOUNTAIN CLUSTER (localized range in one direction) ──────
-        # A tight group of 3–5 tall peaks placed in one quadrant of the
-        # map. Gives the player a clear "mountain range over there"
-        # destination feature, distinct from the scattered mesas.
-        cluster_angle = rng.uniform(0, 2 * np.pi)
-        cluster_dist  = size * rng.uniform(0.32, 0.42)
-        cluster_cx = int(cx0 + np.cos(cluster_angle) * cluster_dist)
-        cluster_cy = int(cy0 + np.sin(cluster_angle) * cluster_dist)
-        for _ in range(int(rng.integers(3, 6))):
+        # ── ONE PROMINENT MOUNTAIN MASSIF ─────────────────────────────
+        # Real Mars locations (Gale, Jezero) have ONE dominant landmark,
+        # not a galaxy of mesas. The cluster is now a single asymmetric
+        # mountain mass with naturalistic FBM modulation and ridged
+        # flanks — a Mt. Sharp analogue.
+        massif_angle = rng.uniform(0, 2 * np.pi)
+        massif_dist  = size * rng.uniform(0.30, 0.42)
+        massif_cx = cx0 + np.cos(massif_angle) * massif_dist
+        massif_cy = cy0 + np.sin(massif_angle) * massif_dist
+        # Big base radius + tall peak height
+        massif_radius = size * 0.18
+        massif_height = rng.uniform(140.0, 200.0)
+        h = h + _natural_mountain(
+            rng, size, massif_cx, massif_cy,
+            base_radius=massif_radius, height=massif_height,
+            ridge_strength=0.55, asymmetry=0.40,
+        )
+        # Add 1-2 secondary peaks that "lean against" the massif so the
+        # silhouette has the kind of layered foothills you see in real
+        # rover panoramas.
+        for _ in range(int(rng.integers(1, 3))):
             off_a = rng.uniform(0, 2 * np.pi)
-            off_d = size * rng.uniform(0.025, 0.09)
-            cx = int(cluster_cx + np.cos(off_a) * off_d)
-            cy = int(cluster_cy + np.sin(off_a) * off_d)
-            radius = size * rng.uniform(0.04, 0.08)
-            # Mountain-range peaks are taller and steeper than mesas
-            height = rng.uniform(110.0, 260.0)
-            r = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2)
-            peak = height * np.clip(np.cos(np.pi / 2 * r / radius), 0, 1) ** 1.3
-            peak = np.where(r < radius * 1.3, peak, 0.0)
-            peak = gaussian_filter(peak, sigma=4.0)
-            h = h + peak.astype(np.float32)
+            off_d = size * rng.uniform(0.04, 0.10)
+            sx = massif_cx + np.cos(off_a) * off_d
+            sy = massif_cy + np.sin(off_a) * off_d
+            h = h + _natural_mountain(
+                rng, size, sx, sy,
+                base_radius=size * rng.uniform(0.05, 0.09),
+                height=rng.uniform(80.0, 160.0),
+                ridge_strength=0.45,
+            )
+
+        # ── 1–2 DISTANT SOLITARY MESAS (other side of the map) ──────
+        for _ in range(int(rng.integers(1, 3))):
+            # Place mesas opposite the massif so the player has features
+            # in multiple directions but not crowded.
+            angle = massif_angle + np.pi + rng.uniform(-0.6, 0.6)
+            dist  = size * rng.uniform(0.32, 0.44)
+            mx = cx0 + np.cos(angle) * dist
+            my = cy0 + np.sin(angle) * dist
+            h = h + _natural_mountain(
+                rng, size, mx, my,
+                base_radius=size * rng.uniform(0.06, 0.10),
+                height=rng.uniform(70.0, 140.0),
+                ridge_strength=0.35,
+                asymmetry=0.30,
+            )
 
         # ── ONE LARGE BACKGROUND CRATER (rim visible on horizon) ──────
         # Half-encircles the play area. Like standing inside Jezero with
@@ -363,13 +470,16 @@ def synthetic_mars_terrain(
             bump = gaussian_filter(bump, sigma=1.5)
             h = h + bump.astype(np.float32)
 
-        # ── Wind ripples (decimeter dune corduroy) ────────────────────
-        wind_dir = rng.uniform(0, np.pi)
-        ripple = _value_noise_2d(rng, size, scale=size // 96)
-        sx = 0.6 + 5.0 * abs(np.cos(wind_dir))
-        sy = 0.6 + 5.0 * abs(np.sin(wind_dir))
-        ripple = gaussian_filter(ripple, sigma=(sy, sx))
-        h = h + 0.25 * (ripple - ripple.mean())
+        # ── Real dune field: asymmetric crests, multi-wavelength ─────
+        # Replaces stretched-noise "ripples" with proper sinusoidal
+        # wind-aligned dune ridges that have steep lee + gentle windward
+        # slopes — the corduroy pattern visible in Mars rover panoramas.
+        h = h + _dune_field(rng, size, wavelength_cells=size / 28.0,
+                            amplitude_m=1.2)
+        # Plus a finer secondary dune layer at a different orientation
+        # for natural cross-pattern complexity.
+        h = h + _dune_field(rng, size, wavelength_cells=size / 70.0,
+                            amplitude_m=0.4)
 
     elif style == "highland":
         amp = elevation_amplitude_m if elevation_amplitude_m is not None else 30.0
