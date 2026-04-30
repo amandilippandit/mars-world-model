@@ -266,42 +266,87 @@ def synthetic_mars_terrain(
     rng = np.random.default_rng(seed)
 
     if style == "plain":
-        # Realistic Mars regolith plain — what rovers actually drive on.
-        # Long-wavelength rolling relief with sparse SHALLOW craters and
-        # very subtle wind-aligned ripples. Median slope ~5°, dominant
-        # features are gentle dunes and dust drifts rather than peaks.
-        amp = elevation_amplitude_m if elevation_amplitude_m is not None else 6.0
-        # Long, smooth base relief (low-frequency dunes / pediment slopes).
+        # Mars rover-eye view: gentle walkable foreground with DRAMATIC
+        # distant features (mesas, peaks, crater rims) rising on the
+        # horizon. This is what Jezero / Gale / Mt. Sharp panoramas show:
+        # 80% of the ground is walkable, but the silhouette is unmistakable.
+        amp = elevation_amplitude_m if elevation_amplitude_m is not None else 8.0
+        # ── Base: long, smooth rolling relief ─────────────────────────
         h = _fbm(rng, size, octaves=4, persistence=0.55, base_scale=size // 6)
-        # Subtle mid-frequency variation for sediment patches.
         mid = _fbm(rng, size, octaves=3, persistence=0.5, base_scale=size // 24)
         h = h + 0.18 * mid
-        # Heavy smoothing — the plain has no sharp ridges.
         h = gaussian_filter(h, sigma=6.0).astype(np.float32)
         h = (h - h.mean()) / (h.std() + 1e-8) * (amp / 4.0)
 
-        # Sparse SHALLOW craters. Real Mars craters at 50–200 m diameter
-        # are typically 5–20 m deep (depth/diameter ~0.1) and heavily
-        # eroded — soft rims, gentle slopes. Small craters dominate.
         ys = np.arange(size)[:, None]
         xs = np.arange(size)[None, :]
-        for _ in range(12):
+        cx0, cy0 = size // 2, size // 2
+
+        # ── HERO MESAS / DISTANT PEAKS ────────────────────────────────
+        # 2–4 prominent landmarks placed in a ring at 200–400 m from
+        # origin so the player at center sees them on the horizon —
+        # NOT in the foreground. These provide the "this is Mars"
+        # silhouette that pure plains lack.
+        n_mesas = int(rng.integers(2, 5))
+        for _ in range(n_mesas):
+            angle = rng.uniform(0, 2 * np.pi)
+            dist  = size * rng.uniform(0.28, 0.45)
+            cx = int(cx0 + np.cos(angle) * dist)
+            cy = int(cy0 + np.sin(angle) * dist)
+            radius = size * rng.uniform(0.05, 0.10)
+            # Real Mars mesas: 30–150 m tall above the surrounding plain.
+            height = rng.uniform(35.0, 110.0)
+            # Cosine-bell falloff for a rounded mesa shape, then strong
+            # smoothing for "eroded over geological time" look.
+            r = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2)
+            mesa = height * np.clip(np.cos(np.pi / 2 * r / radius), 0, 1) ** 1.6
+            mesa = np.where(r < radius * 1.4, mesa, 0.0)
+            mesa = gaussian_filter(mesa, sigma=5.0)
+            h = h + mesa.astype(np.float32)
+
+        # ── ONE LARGE BACKGROUND CRATER (rim visible on horizon) ──────
+        # Half-encircles the play area. Like standing inside Jezero with
+        # the crater wall visible to one side.
+        if rng.random() < 0.7:
+            angle = rng.uniform(0, 2 * np.pi)
+            dist  = size * 0.55       # mostly off the patch — only the rim arc shows
+            cx = int(cx0 + np.cos(angle) * dist)
+            cy = int(cy0 + np.sin(angle) * dist)
+            radius = size * rng.uniform(0.20, 0.30)
+            depth = radius * 0.10
+            r = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2)
+            bowl = -depth * np.clip(np.cos(np.pi / 2 * r / radius), 0, 1) ** 2
+            lip_w = radius * 0.18
+            lip = (depth * 0.6) * np.exp(-((r - radius) ** 2) / (lip_w * lip_w))
+            big_crater = np.where(r < radius * 1.3, bowl + lip, 0.0)
+            big_crater = gaussian_filter(big_crater, sigma=4.0)
+            h = h + big_crater.astype(np.float32)
+
+        # ── Sparse SHALLOW small/medium craters (foreground detail) ───
+        for _ in range(10):
             cy = rng.integers(0, size); cx = rng.integers(0, size)
-            # Small to mid-sized craters (in cells). Most are small.
-            r_factor = rng.beta(2, 5)         # skews toward small
-            radius = size * (0.025 + 0.10 * r_factor)
-            # Depth/diameter ratio 0.04–0.08 (eroded craters are shallow)
+            r_factor = rng.beta(2, 5)
+            radius = size * (0.025 + 0.08 * r_factor)
             depth = (2 * radius) * rng.uniform(0.04, 0.08)
             r = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2)
             bowl = -depth * np.clip(np.cos(np.pi / 2 * r / radius), 0, 1) ** 2
             lip_w = radius * 0.30
             lip = (depth * 0.25) * np.exp(-((r - radius) ** 2) / (lip_w * lip_w))
             crater = np.where(r < radius * 1.5, bowl + lip, 0.0)
-            crater = gaussian_filter(crater, sigma=3.0)   # very soft edges
+            crater = gaussian_filter(crater, sigma=3.0)
             h = h + crater.astype(np.float32)
 
-        # Wind ripples: anisotropic noise stretched along a "wind" direction.
-        # Real Mars dunes show this corduroy pattern at decimeter scale.
+        # ── A few rocky outcrops (small visible bumps in mid-distance) ─
+        for _ in range(int(rng.integers(4, 9))):
+            cy = rng.integers(0, size); cx = rng.integers(0, size)
+            r_size = size * rng.uniform(0.012, 0.030)
+            height = rng.uniform(2.0, 6.0)
+            r = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2)
+            bump = height * np.exp(-(r / r_size) ** 2)
+            bump = gaussian_filter(bump, sigma=1.5)
+            h = h + bump.astype(np.float32)
+
+        # ── Wind ripples (decimeter dune corduroy) ────────────────────
         wind_dir = rng.uniform(0, np.pi)
         ripple = _value_noise_2d(rng, size, scale=size // 96)
         sx = 0.6 + 5.0 * abs(np.cos(wind_dir))
