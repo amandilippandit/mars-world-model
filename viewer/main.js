@@ -277,6 +277,95 @@ async function loadTerrain() {
 // real biomechanics: knees flexing only during the swing phase, pelvis
 // tilting (Trendelenburg) on the airborne side, spine counter-twisting,
 // arms swinging in opposition to legs with elbow bend, etc.
+// ──────────────────────────────────────────────────────────────────────
+//  Scatter rocks via GPU instancing
+// ──────────────────────────────────────────────────────────────────────
+// Real Mars rover panoramas show the ground LITERALLY DOTTED with basalt
+// rocks at every scale. We instance ~10–15k rocks across the terrain
+// using THREE.InstancedMesh — all of them render in a handful of draw
+// calls, regardless of count. Without this, the surface looks like a
+// smooth dust desert; with it, the surface reads as Mars.
+function scatterRocks(terrain, opts) {
+  const {
+    count, sizeMin, sizeMax,
+    color, roughness = 0.95,
+    castShadow = false, slopeLimit = 0.7,
+  } = opts;
+
+  // 4 base shapes for variety. Per-vertex distortion gives unique
+  // silhouettes. Low-poly (~20 tris each) so 8k+ instances stay cheap.
+  const baseGeos = [];
+  for (let v = 0; v < 4; v++) {
+    const g = new THREE.IcosahedronGeometry(1, 0);
+    const pos = g.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      const d = 0.55 + 0.5 * Math.random();
+      pos.setXYZ(i, x * d, y * d * (0.45 + Math.random() * 0.3), z * d);
+    }
+    g.computeVertexNormals();
+    baseGeos.push(g);
+  }
+
+  const material = new THREE.MeshStandardMaterial({
+    color, roughness, metalness: 0.0, flatShading: true,
+  });
+  if (scene.environment) {
+    material.envMap = scene.environment;
+    material.envMapIntensity = 0.4;
+  }
+
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const p = new THREE.Vector3();
+  const s = new THREE.Vector3();
+
+  const perGeo = Math.ceil(count / baseGeos.length);
+  let totalPlaced = 0;
+
+  for (const g of baseGeos) {
+    const inst = new THREE.InstancedMesh(g, material, perGeo);
+    inst.castShadow = castShadow;
+    inst.receiveShadow = true;
+
+    let placed = 0, attempts = 0;
+    while (placed < perGeo && attempts < perGeo * 6) {
+      attempts++;
+      const x = (Math.random() - 0.5) * terrain.widthM * 0.96;
+      const z = (Math.random() - 0.5) * terrain.heightM * 0.96;
+      const y = sampleTerrainHeight(terrain, x, z);
+      if (y < terrain.meta.z_min - 0.5) continue;
+      // Reject cliff faces — rocks would clip through and float.
+      const eps = 1.0;
+      const dyx = sampleTerrainHeight(terrain, x + eps, z) - sampleTerrainHeight(terrain, x - eps, z);
+      const dyz = sampleTerrainHeight(terrain, x, z + eps) - sampleTerrainHeight(terrain, x, z - eps);
+      const slope = Math.hypot(dyx, dyz) / (2 * eps);
+      if (slope > slopeLimit) continue;
+
+      const sz = sizeMin + Math.pow(Math.random(), 2.2) * (sizeMax - sizeMin);
+      e.set(
+        (Math.random() - 0.5) * 0.6,
+        Math.random() * Math.PI * 2,
+        (Math.random() - 0.5) * 0.6,
+      );
+      q.setFromEuler(e);
+      s.set(sz, sz * (0.45 + Math.random() * 0.55), sz);
+      // Sink slightly into the ground so they look embedded, not stuck on top.
+      p.set(x, y - sz * 0.18, z);
+      m.compose(p, q, s);
+      inst.setMatrixAt(placed, m);
+      placed++;
+    }
+    inst.instanceMatrix.needsUpdate = true;
+    inst.count = placed;
+    scene.add(inst);
+    totalPlaced += placed;
+  }
+  return totalPlaced;
+}
+
+
 function buildHumanoid() {
   const root = new THREE.Group();
 
@@ -889,15 +978,40 @@ window.addEventListener("resize", () => {
 
 loadTerrain().then(t => {
   terrain = t;
-  // Spawn the astronaut at world origin on the terrain surface.
   character.position.set(0, sampleTerrainHeight(t, 0, 0), 0);
-  // Attach the env map to the suit/visor materials now that it exists
   character.traverse(obj => {
     if (obj.isMesh && obj.material && "envMap" in obj.material) {
       obj.material.envMap = scene.environment;
       obj.material.needsUpdate = true;
     }
   });
+
+  // ── Scatter rocks across the terrain (the defining Mars surface look) ──
+  // Three size tiers matching reference Mars rover photos: a few big
+  // boulders that cast shadows, lots of mid-sized debris that forms the
+  // "rock carpet", and even more small pebbles for ground texture.
+  console.log("scattering rocks…");
+  const rockT0 = performance.now();
+  const boulders = scatterRocks(t, {
+    count: 600, sizeMin: 0.8, sizeMax: 2.4,
+    color: 0x3a2516, roughness: 0.96,
+    castShadow: true, slopeLimit: 0.55,
+  });
+  const rocks = scatterRocks(t, {
+    count: 4000, sizeMin: 0.20, sizeMax: 0.7,
+    color: 0x2e1d10, roughness: 0.95,
+    castShadow: false, slopeLimit: 0.75,
+  });
+  const pebbles = scatterRocks(t, {
+    count: 8000, sizeMin: 0.05, sizeMax: 0.18,
+    color: 0x261810, roughness: 0.92,
+    castShadow: false, slopeLimit: 0.85,
+  });
+  console.log(
+    `scattered ${boulders} boulders + ${rocks} rocks + ${pebbles} pebbles in ` +
+    `${(performance.now() - rockT0).toFixed(0)} ms`
+  );
+
   tick();
 }).catch(err => {
   document.getElementById("meta-line").textContent =
