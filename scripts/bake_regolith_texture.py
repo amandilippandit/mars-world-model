@@ -41,10 +41,11 @@ def generate_regolith(size: int = 2048, seed: int = 0) -> np.ndarray:
     Tiles cleanly because there's no large recognizable feature to repeat.
     """
     rng = np.random.default_rng(seed)
-    # Wasteland grey — warm-tinted so it still reads natural under the
-    # butterscotch sky rather than pure neutral. Real Mars highland plains
-    # and shadowed regolith look close to this in calibrated rover imagery.
-    base = np.array((0.42, 0.40, 0.37), dtype=np.float32)
+    # Mars rust — warm orange-red matching calibrated Curiosity Mastcam-Z
+    # imagery of the surface (Sol ~3500 onward). Slightly desaturated so
+    # the texture's color drift can push it both warmer and cooler in
+    # places without becoming cartoonish.
+    base = np.array((0.58, 0.36, 0.22), dtype=np.float32)
 
     # ── Base color ─────────────────────────────────────────────────────
     img = np.broadcast_to(base, (size, size, 3)).copy()
