@@ -241,7 +241,7 @@ def synthetic_mars_terrain(
     *,
     seed: int = 0,
     horizontal_m_per_px: float = 1.0,
-    style: str = "badlands",
+    style: str = "plain",
     elevation_amplitude_m: float | None = None,
     octaves: int = 5,
     persistence: float = 0.65,
@@ -266,11 +266,48 @@ def synthetic_mars_terrain(
     rng = np.random.default_rng(seed)
 
     if style == "plain":
-        amp = elevation_amplitude_m if elevation_amplitude_m is not None else 4.0
-        h = _fbm(rng, size, octaves=octaves, persistence=persistence, base_scale=size // 4)
-        h = gaussian_filter(h, sigma=4.0).astype(np.float32)
+        # Realistic Mars regolith plain — what rovers actually drive on.
+        # Long-wavelength rolling relief with sparse SHALLOW craters and
+        # very subtle wind-aligned ripples. Median slope ~5°, dominant
+        # features are gentle dunes and dust drifts rather than peaks.
+        amp = elevation_amplitude_m if elevation_amplitude_m is not None else 6.0
+        # Long, smooth base relief (low-frequency dunes / pediment slopes).
+        h = _fbm(rng, size, octaves=4, persistence=0.55, base_scale=size // 6)
+        # Subtle mid-frequency variation for sediment patches.
+        mid = _fbm(rng, size, octaves=3, persistence=0.5, base_scale=size // 24)
+        h = h + 0.18 * mid
+        # Heavy smoothing — the plain has no sharp ridges.
+        h = gaussian_filter(h, sigma=6.0).astype(np.float32)
         h = (h - h.mean()) / (h.std() + 1e-8) * (amp / 4.0)
-        h = _add_craters(h, rng, n_craters)
+
+        # Sparse SHALLOW craters. Real Mars craters at 50–200 m diameter
+        # are typically 5–20 m deep (depth/diameter ~0.1) and heavily
+        # eroded — soft rims, gentle slopes. Small craters dominate.
+        ys = np.arange(size)[:, None]
+        xs = np.arange(size)[None, :]
+        for _ in range(12):
+            cy = rng.integers(0, size); cx = rng.integers(0, size)
+            # Small to mid-sized craters (in cells). Most are small.
+            r_factor = rng.beta(2, 5)         # skews toward small
+            radius = size * (0.025 + 0.10 * r_factor)
+            # Depth/diameter ratio 0.04–0.08 (eroded craters are shallow)
+            depth = (2 * radius) * rng.uniform(0.04, 0.08)
+            r = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2)
+            bowl = -depth * np.clip(np.cos(np.pi / 2 * r / radius), 0, 1) ** 2
+            lip_w = radius * 0.30
+            lip = (depth * 0.25) * np.exp(-((r - radius) ** 2) / (lip_w * lip_w))
+            crater = np.where(r < radius * 1.5, bowl + lip, 0.0)
+            crater = gaussian_filter(crater, sigma=3.0)   # very soft edges
+            h = h + crater.astype(np.float32)
+
+        # Wind ripples: anisotropic noise stretched along a "wind" direction.
+        # Real Mars dunes show this corduroy pattern at decimeter scale.
+        wind_dir = rng.uniform(0, np.pi)
+        ripple = _value_noise_2d(rng, size, scale=size // 96)
+        sx = 0.6 + 5.0 * abs(np.cos(wind_dir))
+        sy = 0.6 + 5.0 * abs(np.sin(wind_dir))
+        ripple = gaussian_filter(ripple, sigma=(sy, sx))
+        h = h + 0.25 * (ripple - ripple.mean())
 
     elif style == "highland":
         amp = elevation_amplitude_m if elevation_amplitude_m is not None else 30.0
@@ -448,7 +485,7 @@ def build_terrain(
     data_dir: Path = Path("data/raw"),
     synthetic_size: int = 512,
     synthetic_seed: int = 0,
-    synthetic_style: str = "badlands",
+    synthetic_style: str = "plain",
     horizontal_m_per_px: float = 1.0,
 ) -> Path:
     """Top-level entry: build a Mars terrain mesh, real or synthetic.

@@ -29,11 +29,12 @@ def terrain(
         help="Heightmap resolution. With 1m/cell, 1024 = 1 km × 1 km terrain."),
     seed: int = typer.Option(0, "--seed"),
     style: str = typer.Option(
-        "badlands", "--style",
-        help="Synthetic style: badlands | highland | plain. "
-             "badlands = Valles-Marineris-like canyons & ridges (default). "
+        "plain", "--style",
+        help="Synthetic style: plain | highland | badlands. "
+             "plain = realistic Jezero-style rolling regolith with craters and "
+             "wind ripples (default — what rovers actually operate on). "
              "highland = rolling hills with rocky patches. "
-             "plain = gentle Jezero-style regolith.",
+             "badlands = dramatic Valles-Marineris-like canyons (rare on Mars).",
     ),
 ):
     """Build a Mars terrain mesh (HiRISE site or synthetic)."""
