@@ -1,0 +1,68 @@
+[project]
+name = "mars-world-model"
+version = "0.1.0"
+description = "Mars-environment world model for Physical AI and humanoid robot pretraining"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "Aman Pandit" }]
+
+dependencies = [
+    # Numerical / data
+    "numpy>=1.26",
+    "scipy>=1.13",
+    "pillow>=10.0",
+    # Geospatial / DEM handling
+    "rasterio>=1.3",
+    "trimesh>=4.0",
+    # HTTP
+    "requests>=2.31",
+    "tqdm>=4.66",
+    # CLI / utilities
+    "typer>=0.12",
+    "rich>=13.7",
+    # Notebooks
+    "jupyter>=1.0",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+physics = [
+    # Genesis is installed separately; pin once we lock a version
+    # "genesis-world>=0.2",
+    "mujoco>=3.1",  # fallback physics if Genesis is unavailable
+]
+render-local = [
+    # Wan 2.1 / video diffusion locally on MPS (heavy, opt-in)
+    "torch>=2.3",
+    "diffusers>=0.30",
+    "transformers>=4.44",
+    "accelerate>=0.33",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+mars = "mars.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mars"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "B", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

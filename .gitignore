@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.python-version
+
+# uv
+.uv/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Project data
+data/raw/*
+data/processed/*
+data/renders/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/renders/.gitkeep
+
+# Models / weights
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+weights/
+models/
+
+# Blender
+*.blend1
+*.blend2
+
+# Logs
+*.log
+logs/
+MUJOCO_LOG.TXT
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/

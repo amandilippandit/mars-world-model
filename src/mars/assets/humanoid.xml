@@ -1,0 +1,129 @@
+<!--
+  Self-contained humanoid MJCF for the Mars sim.
+
+  Adapted from the canonical DeepMind MuJoCo humanoid (Apache-2.0).
+  Stripped down to the essentials: torso, head, two arms, two legs.
+  All joints have torque actuators so policies can drive it later.
+
+  Capsules approximate body geometry. Mass/inertia are auto-computed
+  from the capsule volumes assuming uniform density.
+
+  Coordinate frame: X east, Y north, Z up. The model is positioned
+  with its torso 1.4 m above origin so it spawns standing on flat ground.
+-->
+<mujoco model="mars_humanoid">
+  <compiler angle="degree" inertiafromgeom="true"/>
+  <default>
+    <joint armature="1" damping="1" limited="true"/>
+    <geom condim="3" friction="0.65 0.005 0.0001" margin="0.001"
+          rgba="0.85 0.6 0.4 1" solref="0.01 1" solimp="0.99 0.99 0.01"/>
+    <motor ctrlrange="-150 150" ctrllimited="true"/>
+  </default>
+
+  <worldbody>
+    <body name="torso" pos="0 0 1.4">
+      <freejoint name="root"/>
+      <camera name="front" pos="0 -3 0" xyaxes="1 0 0 0 0 1" mode="trackcom"/>
+      <camera name="side"  pos="3 0 0" xyaxes="0 -1 0 0 0 1" mode="trackcom"/>
+
+      <geom name="torso"  type="capsule" fromto="0 -0.07 0 0 0.07 0" size="0.07"/>
+      <geom name="upper_waist" type="capsule" fromto="-0.01 -0.06 -0.12 -0.01 0.06 -0.12" size="0.06"/>
+
+      <body name="head" pos="0 0 0.19">
+        <geom name="head" type="sphere" size="0.09"/>
+      </body>
+
+      <body name="lower_waist" pos="-0.01 0 -0.26">
+        <geom name="lower_waist" type="capsule" fromto="0 -0.06 0 0 0.06 0" size="0.06"/>
+        <joint name="abdomen_z" axis="0 0 1" pos="0 0 0.065" range="-45 45" stiffness="20" damping="5"/>
+        <joint name="abdomen_y" axis="0 1 0" pos="0 0 0.065" range="-75 30" stiffness="10" damping="5"/>
+
+        <body name="pelvis" pos="0 0 -0.165">
+          <joint name="abdomen_x" axis="1 0 0" pos="0 0 0.1" range="-35 35" stiffness="10" damping="5"/>
+          <geom name="pelvis" type="capsule" fromto="-0.02 -0.07 0 -0.02 0.07 0" size="0.09"/>
+
+          <!-- Right thigh / shin / foot -->
+          <body name="right_thigh" pos="0 -0.1 -0.04">
+            <joint name="right_hip_x" axis="1 0 0" range="-25 5"  stiffness="10" damping="5"/>
+            <joint name="right_hip_z" axis="0 0 1" range="-60 35" stiffness="10" damping="5"/>
+            <joint name="right_hip_y" axis="0 1 0" range="-110 20" stiffness="20" damping="5"/>
+            <geom name="right_thigh" type="capsule" fromto="0 0 0 0 0.01 -0.34" size="0.06"/>
+            <body name="right_shin" pos="0 0.01 -0.4">
+              <joint name="right_knee" axis="0 -1 0" pos="0 0 0.02" range="-160 -2"/>
+              <geom name="right_shin" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.049"/>
+              <body name="right_foot" pos="0 0 -0.39">
+                <geom name="right_right_foot" type="capsule" fromto="-0.07 -0.02 0 0.14 -0.04 0" size="0.027"/>
+                <geom name="left_right_foot"  type="capsule" fromto="-0.07  0.02 0 0.14  0.04 0" size="0.027"/>
+              </body>
+            </body>
+          </body>
+
+          <body name="left_thigh" pos="0 0.1 -0.04">
+            <joint name="left_hip_x" axis="-1 0 0" range="-25 5"  stiffness="10" damping="5"/>
+            <joint name="left_hip_z" axis="0 0 -1" range="-60 35" stiffness="10" damping="5"/>
+            <joint name="left_hip_y" axis="0 1 0"  range="-110 20" stiffness="20" damping="5"/>
+            <geom name="left_thigh" type="capsule" fromto="0 0 0 0 -0.01 -0.34" size="0.06"/>
+            <body name="left_shin" pos="0 -0.01 -0.4">
+              <joint name="left_knee" axis="0 -1 0" pos="0 0 0.02" range="-160 -2"/>
+              <geom name="left_shin" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.049"/>
+              <body name="left_foot" pos="0 0 -0.39">
+                <geom name="left_left_foot"  type="capsule" fromto="-0.07  0.02 0 0.14  0.04 0" size="0.027"/>
+                <geom name="right_left_foot" type="capsule" fromto="-0.07 -0.02 0 0.14 -0.04 0" size="0.027"/>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- Right arm -->
+      <body name="right_upper_arm" pos="0 -0.17 0.06">
+        <joint name="right_shoulder1" axis="2 1 1"  range="-85 60" stiffness="10" damping="5"/>
+        <joint name="right_shoulder2" axis="0 -1 1" range="-85 60" stiffness="10" damping="5"/>
+        <geom name="right_uarm1" type="capsule" fromto="0 0 0 0.16 -0.16 -0.16" size="0.04"/>
+        <body name="right_lower_arm" pos="0.18 -0.18 -0.18">
+          <joint name="right_elbow" axis="0 -1 1" range="-90 50" stiffness="0" damping="2"/>
+          <geom name="right_larm" type="capsule" fromto="0.01 0.01 0.01 0.17 0.17 0.17" size="0.031"/>
+          <geom name="right_hand" type="sphere" pos="0.18 0.18 0.18" size="0.04"/>
+        </body>
+      </body>
+
+      <body name="left_upper_arm" pos="0 0.17 0.06">
+        <joint name="left_shoulder1" axis="2 -1 1" range="-60 85" stiffness="10" damping="5"/>
+        <joint name="left_shoulder2" axis="0 1 1"  range="-60 85" stiffness="10" damping="5"/>
+        <geom name="left_uarm1" type="capsule" fromto="0 0 0 0.16 0.16 -0.16" size="0.04"/>
+        <body name="left_lower_arm" pos="0.18 0.18 -0.18">
+          <joint name="left_elbow" axis="0 -1 -1" range="-90 50" stiffness="0" damping="2"/>
+          <geom name="left_larm" type="capsule" fromto="0.01 -0.01 0.01 0.17 -0.17 0.17" size="0.031"/>
+          <geom name="left_hand" type="sphere" pos="0.18 -0.18 0.18" size="0.04"/>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <!--
+    Position actuators with built-in PD: ctrl is the target joint angle in
+    radians, the actuator generates τ = kp(target − q) − kv·q̇ each step.
+    Tuned so the body holds posture under Mars gravity but can be perturbed.
+    Higher kp on the legs (they carry weight); modest kp on arms (just for
+    swing animation, not load-bearing).
+  -->
+  <actuator>
+    <position name="abdomen_y"      joint="abdomen_y"      kp="200"  kv="20"/>
+    <position name="abdomen_z"      joint="abdomen_z"      kp="200"  kv="20"/>
+    <position name="abdomen_x"      joint="abdomen_x"      kp="200"  kv="20"/>
+    <position name="right_hip_x"    joint="right_hip_x"    kp="120"  kv="12"/>
+    <position name="right_hip_z"    joint="right_hip_z"    kp="120"  kv="12"/>
+    <position name="right_hip_y"    joint="right_hip_y"    kp="350"  kv="30"/>
+    <position name="right_knee"     joint="right_knee"     kp="350"  kv="30"/>
+    <position name="left_hip_x"     joint="left_hip_x"     kp="120"  kv="12"/>
+    <position name="left_hip_z"     joint="left_hip_z"     kp="120"  kv="12"/>
+    <position name="left_hip_y"     joint="left_hip_y"     kp="350"  kv="30"/>
+    <position name="left_knee"      joint="left_knee"      kp="350"  kv="30"/>
+    <position name="right_shoulder1" joint="right_shoulder1" kp="60"  kv="6"/>
+    <position name="right_shoulder2" joint="right_shoulder2" kp="60"  kv="6"/>
+    <position name="right_elbow"     joint="right_elbow"     kp="40"  kv="4"/>
+    <position name="left_shoulder1"  joint="left_shoulder1"  kp="60"  kv="6"/>
+    <position name="left_shoulder2"  joint="left_shoulder2"  kp="60"  kv="6"/>
+    <position name="left_elbow"      joint="left_elbow"      kp="40"  kv="4"/>
+  </actuator>
+</mujoco>
