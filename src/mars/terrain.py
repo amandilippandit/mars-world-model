@@ -283,26 +283,43 @@ def synthetic_mars_terrain(
         cx0, cy0 = size // 2, size // 2
 
         # ── HERO MESAS / DISTANT PEAKS ────────────────────────────────
-        # 2–4 prominent landmarks placed in a ring at 200–400 m from
-        # origin so the player at center sees them on the horizon —
-        # NOT in the foreground. These provide the "this is Mars"
-        # silhouette that pure plains lack.
+        # 2–4 prominent landmarks placed in a ring at 250–450 m from
+        # origin so the player at center sees them on the horizon.
         n_mesas = int(rng.integers(2, 5))
         for _ in range(n_mesas):
             angle = rng.uniform(0, 2 * np.pi)
             dist  = size * rng.uniform(0.28, 0.45)
             cx = int(cx0 + np.cos(angle) * dist)
             cy = int(cy0 + np.sin(angle) * dist)
-            radius = size * rng.uniform(0.05, 0.10)
-            # Real Mars mesas: 30–150 m tall above the surrounding plain.
-            height = rng.uniform(35.0, 110.0)
-            # Cosine-bell falloff for a rounded mesa shape, then strong
-            # smoothing for "eroded over geological time" look.
+            radius = size * rng.uniform(0.06, 0.11)
+            height = rng.uniform(60.0, 160.0)        # taller for visual scale
             r = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2)
             mesa = height * np.clip(np.cos(np.pi / 2 * r / radius), 0, 1) ** 1.6
             mesa = np.where(r < radius * 1.4, mesa, 0.0)
             mesa = gaussian_filter(mesa, sigma=5.0)
             h = h + mesa.astype(np.float32)
+
+        # ── MOUNTAIN CLUSTER (localized range in one direction) ──────
+        # A tight group of 3–5 tall peaks placed in one quadrant of the
+        # map. Gives the player a clear "mountain range over there"
+        # destination feature, distinct from the scattered mesas.
+        cluster_angle = rng.uniform(0, 2 * np.pi)
+        cluster_dist  = size * rng.uniform(0.32, 0.42)
+        cluster_cx = int(cx0 + np.cos(cluster_angle) * cluster_dist)
+        cluster_cy = int(cy0 + np.sin(cluster_angle) * cluster_dist)
+        for _ in range(int(rng.integers(3, 6))):
+            off_a = rng.uniform(0, 2 * np.pi)
+            off_d = size * rng.uniform(0.025, 0.09)
+            cx = int(cluster_cx + np.cos(off_a) * off_d)
+            cy = int(cluster_cy + np.sin(off_a) * off_d)
+            radius = size * rng.uniform(0.04, 0.08)
+            # Mountain-range peaks are taller and steeper than mesas
+            height = rng.uniform(110.0, 260.0)
+            r = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2)
+            peak = height * np.clip(np.cos(np.pi / 2 * r / radius), 0, 1) ** 1.3
+            peak = np.where(r < radius * 1.3, peak, 0.0)
+            peak = gaussian_filter(peak, sigma=4.0)
+            h = h + peak.astype(np.float32)
 
         # ── ONE LARGE BACKGROUND CRATER (rim visible on horizon) ──────
         # Half-encircles the play area. Like standing inside Jezero with

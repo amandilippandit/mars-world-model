@@ -47,6 +47,78 @@ def _terrain_height_at_origin(npy_path: Path, search_radius_cells: int = 2) -> f
     return float(np.nanmax(patch))
 
 
+def _generate_rock_decorations(
+    npy_path: Path, m_per_cell: float = 1.0,
+    n_boulders: int = 80, n_rocks: int = 200, n_pebbles: int = 400,
+    seed: int = 0,
+) -> str:
+    """Procedurally place rocks across the heightfield as <geom> elements.
+
+    MuJoCo doesn't have GPU instancing — each rock is its own geom. To
+    keep the sim fast we mark them ``contype="0" conaffinity="0"`` so they
+    are visual-only (the humanoid walks straight through them). The
+    physical terrain is the heightfield underneath.
+
+    Three size tiers — boulders (~1 m), rocks (~0.4 m), pebbles (~0.1 m) —
+    matching the rock-strewn look of real Mars rover panoramas.
+    """
+    arr = np.load(npy_path)
+    rng = np.random.default_rng(seed)
+    nrow, ncol = arr.shape
+
+    geoms: list[str] = []
+    spawn_radius_m = 8.0   # don't place rocks inside the player spawn zone
+
+    def place(size_min: float, size_max: float) -> tuple[float, float, float, float] | None:
+        for _ in range(50):
+            col = int(rng.integers(15, ncol - 15))
+            row = int(rng.integers(15, nrow - 15))
+            x = (col - (ncol - 1) / 2.0) * m_per_cell
+            y = (row - (nrow - 1) / 2.0) * m_per_cell
+            if x * x + y * y < spawn_radius_m * spawn_radius_m:
+                continue
+            # Reject too-steep slopes (rocks would float in cliff faces).
+            dh_x = float(arr[row, col + 1] - arr[row, col - 1])
+            dh_y = float(arr[row + 1, col] - arr[row - 1, col])
+            slope = (dh_x * dh_x + dh_y * dh_y) ** 0.5 / (2.0 * m_per_cell)
+            if slope > 0.55:
+                continue
+            z = float(arr[row, col])
+            sz = float(rng.uniform(size_min, size_max))
+            return x, y, z, sz
+        return None
+
+    def emit(p: tuple[float, float, float, float]) -> None:
+        x, y, z, sz = p
+        # Sink the rock 30% into the surface so it looks bedded, not perched.
+        z_world = z + sz * 0.30
+        ex = float(rng.uniform(-15, 15))
+        ey = float(rng.uniform(-15, 15))
+        ez = float(rng.uniform(0, 360))
+        # Ellipsoid scaled down on Y axis for irregular squashed shapes.
+        sy = sz * float(rng.uniform(0.55, 0.85))
+        sx = sz * float(rng.uniform(0.85, 1.10))
+        sz3 = sz * float(rng.uniform(0.85, 1.05))
+        geoms.append(
+            f'<geom type="ellipsoid" pos="{x:.2f} {y:.2f} {z_world:.2f}" '
+            f'size="{sx:.3f} {sy:.3f} {sz3:.3f}" '
+            f'euler="{ex:.0f} {ey:.0f} {ez:.0f}" '
+            f'material="basalt" contype="0" conaffinity="0"/>'
+        )
+
+    for _ in range(n_boulders):
+        p = place(0.55, 1.30)
+        if p is not None: emit(p)
+    for _ in range(n_rocks):
+        p = place(0.18, 0.45)
+        if p is not None: emit(p)
+    for _ in range(n_pebbles):
+        p = place(0.05, 0.15)
+        if p is not None: emit(p)
+
+    return "\n            ".join(geoms)
+
+
 @dataclass
 class SimConfig:
     terrain_obj: Path
@@ -130,6 +202,9 @@ def build_mjcf(cfg: SimConfig) -> str:
     # ~1 mm on the ground. Cranks up the "sand" feel.
     texrepeat = max(8, int(2 * max(half_x, half_y) / 4.0))
 
+    # Procedurally scattered rock decorations (visual only — no collision).
+    rock_decorations_xml = _generate_rock_decorations(npy_path)
+
     return textwrap.dedent(f"""\
         <mujoco model="mars_world">
           <option gravity="0 0 -{MARS.gravity_m_s2}" timestep="{cfg.timestep_s}"
@@ -167,6 +242,9 @@ def build_mjcf(cfg: SimConfig) -> str:
             <material name="regolith" texture="regolith_tex"
                       texuniform="false" texrepeat="{texrepeat} {texrepeat}"
                       specular="0.02" shininess="0.05" reflectance="0"/>
+            <!-- Dark basaltic rock material for scattered decoration geoms. -->
+            <material name="basalt" rgba="0.16 0.10 0.07 1"
+                      specular="0.05" shininess="0.08" reflectance="0"/>
             <hfield name="mars_hfield" file="{png_path}"
                     nrow="{nrow}" ncol="{ncol}"
                     size="{half_x} {half_y} {z_range} {max(2.0, z_range)}"/>
@@ -195,6 +273,10 @@ def build_mjcf(cfg: SimConfig) -> str:
                   material="regolith"
                   friction="{MARS.kinetic_friction_regolith} 0.005 0.0001"
                   contype="1" conaffinity="1"/>
+
+            <!-- ~700 procedurally placed rock/pebble decoration geoms.
+                 contype=0 conaffinity=0 → visual only, no physics cost. -->
+            {rock_decorations_xml}
 
             {body_section}
           </worldbody>
