@@ -1,4 +1,4 @@
-# Mars World Model
+# Martian Regolith Physics Simulation Model
 
 > A simulated Mars environment for pretraining humanoid robots before they ship to Mars.
 
@@ -7,7 +7,7 @@
 [![mujoco](https://img.shields.io/badge/physics-MuJoCo%203.8-orange)](https://mujoco.org/)
 [![three](https://img.shields.io/badge/viewer-three.js%200.167-black)](https://threejs.org/)
 
-Mars World Model is an end-to-end pipeline that builds a physically faithful Mars environment from procedural terrain and NASA DEM data, simulates it with MuJoCo at real Mars gravity, and exposes it through two interactive viewers — a native physics window and a browser-based PBR scene. The goal is a self-contained playground for training humanoid robot policies in Mars-relevant conditions, well before any humanoid actually goes there.
+Martian Regolith Physics Simulation Model is an end-to-end pipeline that builds a physically faithful Mars environment from procedural terrain and NASA DEM data, simulates it with MuJoCo at real Mars gravity, and exposes it through two interactive viewers — a native physics window and a browser-based PBR scene. The goal is a self-contained playground for training humanoid robot policies in Mars-relevant conditions, well before any humanoid actually goes there.
 
 The whole stack runs on a 16 GB MacBook Air. Heavy generative-rendering work optionally offloads to free Colab T4 / Kaggle P100 GPUs.
 
