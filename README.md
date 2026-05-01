@@ -61,8 +61,8 @@ The procedural terrain stage produces three sibling files used by every downstre
 ## Quick start
 
 ```bash
-git clone https://github.com/amandilippandit/mars-world-model.git
-cd mars-world-model
+git clone https://github.com/amandilippandit/Martian-Regolith-Physics-Simulation-Model.git
+cd Martian-Regolith-Physics-Simulation-Model
 
 # Editable install (so `mars` is on the path; mjpython needs it too)
 python3 -m pip install -e .
